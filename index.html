@@ -241,25 +241,174 @@
     
    
     <script>
-        const video = document.getElementById('video');
-        const captureBtn = document.getElementById('capture');
-        const downloadBtn = document.getElementById('download');
-        const retryBtn = document.getElementById('retry');
-        const canvas = document.getElementById('canvas');
-        const mergedCanvas = document.getElementById('mergedCanvas');
-        const timerDisplay = document.getElementById('timer');
-        const bgColorPicker = document.getElementById('bgColor');
-        const resultContainer = document.getElementById('resultContainer');
-        const effectSelect = document.getElementById('effectSelect');
-        const overlaySelect = document.getElementById('overlaySelect');
-        const flashElement = document.getElementById('flash');
-        const ctx = canvas.getContext('2d');
-        const mergedCtx = mergedCanvas.getContext('2d');
-        let capturedImages = [];
-        const styles = ['none', 'none', 'none', 'none']; // Semua tanpa filter
-        let currentImages = [];
-        let isCapturing = false;
+       const video = document.getElementById('video');
+const captureBtn = document.getElementById('capture');
+const downloadBtn = document.getElementById('download');
+const retryBtn = document.getElementById('retry');
+const canvas = document.getElementById('canvas');
+const mergedCanvas = document.getElementById('mergedCanvas');
+const timerDisplay = document.getElementById('timer');
+const bgColorPicker = document.getElementById('bgColor');
+const resultContainer = document.getElementById('resultContainer');
+const effectSelect = document.getElementById('effectSelect');
+const overlaySelect = document.getElementById('overlaySelect');
+const flashElement = document.getElementById('flash');
+const ctx = canvas.getContext('2d');
+const mergedCtx = mergedCanvas.getContext('2d');
+let capturedImages = [];
+const styles = ['none', 'none', 'none', 'none']; // Semua tanpa filter
+let currentImages = [];
+let isCapturing = false;
+
+
+// Replace the requestCamera function with this improved version that requests higher resolution
+function requestCamera() {
+    // Try to get the highest resolution possible
+    const constraints = {
+        video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+        }
+    };
+
+    navigator.mediaDevices.getUserMedia(constraints)
+        .then(stream => {
+            video.srcObject = stream;
+            video.play();
+            video.addEventListener('loadedmetadata', () => {
+                // Adjust canvas sizes to match video resolution
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                // Keep original resolution for merged canvas
+                mergedCanvas.width = video.videoWidth;
+                mergedCanvas.height = video.videoHeight;
+            });
+        })
+        .catch(err => {
+            console.error('Error accessing webcam at high resolution:', err);
+            alert('Resolusi tinggi tidak tersedia. Menggunakan resolusi terbaik yang tersedia.');
+            // Fall back to any available resolution
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    video.srcObject = stream;
+                    video.play();
+                    video.addEventListener('loadedmetadata', () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        mergedCanvas.width = video.videoWidth;
+                        mergedCanvas.height = video.videoHeight;
+                    });
+                })
+                .catch(err => console.error('Error accessing webcam:', err));
+        });
+}
+
+// Replace the updateMergedCanvas function with this improved version
+function updateMergedCanvas() {
+    // Calculate a higher resolution canvas based on the original photo dimensions
+    const numPhotos = currentImages.length;
+    const scaleFactor = 2; // Increase resolution by factor of 2
+    
+    // Scale up dimensions while maintaining aspect ratio
+    const scaledWidth = (photoWidth + (padding * 2)) * scaleFactor;
+    const scaledHeight = ((photoHeight * numPhotos) + (padding * (numPhotos + 1))) * scaleFactor;
+    
+    // Resize the merged canvas to the higher resolution
+    mergedCanvas.width = scaledWidth;
+    mergedCanvas.height = scaledHeight;
+    
+    // Apply CSS to ensure it still displays at the original size
+    mergedCanvas.style.width = `${scaledWidth/scaleFactor}px`;
+    mergedCanvas.style.height = `${scaledHeight/scaleFactor}px`;
+    
+    // Redraw background
+    mergedCtx.fillStyle = bgColorPicker.value;
+    mergedCtx.fillRect(0, 0, mergedCanvas.width, mergedCanvas.height);
+    
+    // Draw all current images vertically at higher resolution
+    for (let i = 0; i < currentImages.length; i++) {
+        const item = currentImages[i];
+        const y = (i * photoHeight + (i + 1) * padding) * scaleFactor;
         
+        // Scale up image dimensions
+        const img = item.img;
+        const imgRatio = img.width / img.height;
+        
+        let drawWidth, drawHeight;
+        if (imgRatio > 1) {
+            // Landscape
+            drawWidth = photoWidth * scaleFactor;
+            drawHeight = (photoWidth / imgRatio) * scaleFactor;
+        } else {
+            // Portrait
+            drawHeight = photoHeight * scaleFactor;
+            drawWidth = (photoHeight * imgRatio) * scaleFactor;
+        }
+        
+        // Center the image horizontally
+        const xOffset = (mergedCanvas.width - drawWidth) / 2;
+        
+        // Create clipping path for rounded corners for each image
+        mergedCtx.save();
+        mergedCtx.roundRect(padding * scaleFactor, y, photoWidth * scaleFactor, photoHeight * scaleFactor, 8 * scaleFactor).clip();
+        
+        // Draw the image inside the clipped area at higher resolution
+        mergedCtx.drawImage(img, xOffset, y, drawWidth, drawHeight);
+        
+        // Restore context to remove clipping
+        mergedCtx.restore();
+    }
+}
+
+// Update the downloadBtn click handler to use higher quality PNG
+downloadBtn.addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.download = 'photobooth_picture.png';
+    // Set quality to 1.0 (maximum) for PNG
+    link.href = mergedCanvas.toDataURL('image/png', 1.0);
+    link.click();
+});
+
+// Replace the capturePhoto function with this improved version
+function capturePhoto(style, index) {
+    return new Promise(resolve => {
+        // Capture image at full resolution
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        
+        // Apply selected effect
+        if (effectSelect.value !== 'none') {
+            applyEffect(ctx, effectSelect.value, canvas.width, canvas.height);
+        }
+        
+        // Apply selected overlay
+        if (overlaySelect.value !== 'none') {
+            drawOverlay(ctx, overlaySelect.value, canvas.width, canvas.height);
+        }
+        
+        // Use maximum quality for the image data
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        capturedImages.push(imgData);
+        
+        // Create image object for drawing to merged canvas
+        const img = new Image();
+        img.onload = () => {
+            currentImages.push({
+                img: img,
+                index: index
+            });
+            updateMergedCanvas();
+            resolve();
+        };
+        img.src = imgData;
+    });
+}
+
+
         // Create background bubbles
         function createBubbles() {
             const bubbleContainer = document.getElementById('bubbles');
@@ -601,126 +750,6 @@
             });
         }
 
-        function updateMergedCanvas() {
-            // Calculate the new canvas size based on the number of photos
-            const numPhotos = currentImages.length;
-            const canvasHeight = (photoHeight * numPhotos) + (padding * (numPhotos + 1));
-            
-            // Make sure the canvas height doesn't exceed the maximum allowed
-            const maxHeight = calculateMaxCanvasHeight();
-            const finalHeight = Math.min(canvasHeight, maxHeight);
-            
-            // Resize the merged canvas based on the current number of photos
-            mergedCanvas.width = photoWidth + (padding * 2);
-            mergedCanvas.height = finalHeight;
-            
-            // Redraw background
-            mergedCtx.fillStyle = bgColorPicker.value;
-            mergedCtx.fillRect(0, 0, mergedCanvas.width, mergedCanvas.height);
-            
-            // Draw all current images vertically
-            for (let i = 0; i < currentImages.length; i++) {
-                const item = currentImages[i];
-                const y = i * photoHeight + (i + 1) * padding;
-                
-                // Center image horizontally
-                const img = item.img;
-                const imgRatio = img.width / img.height;
-                
-                let drawWidth, drawHeight;
-                if (imgRatio > 1) {
-                    // Landscape
-                    drawWidth = photoWidth;
-                    drawHeight = photoWidth / imgRatio;
-                } else {
-                    // Portrait
-                    drawHeight = photoHeight;
-                    drawWidth = photoHeight * imgRatio;
-                }
-                
-                // Center the image horizontally
-                const xOffset = (mergedCanvas.width - drawWidth) / 2;
-                
-                // Create clipping path for rounded corners for each image
-                mergedCtx.save();
-                mergedCtx.roundRect(padding, y, photoWidth, photoHeight, 8).clip();
-                
-                // Draw the image inside the clipped area
-                mergedCtx.drawImage(img, xOffset, y, drawWidth, drawHeight);
-                
-                // Restore context to remove clipping
-                mergedCtx.restore();
-            }
-        }
-
-        // Update canvas when background color changes
-        bgColorPicker.addEventListener('input', () => {
-            updateMergedCanvas();
-        });
-
-        // Update canvas when effect or overlay changes
-        effectSelect.addEventListener('change', () => {
-            if (currentImages.length > 0) {
-                // Recapture photos with the new effect
-                recaptureWithEffects();
-            }
-        });
-
-        overlaySelect.addEventListener('change', () => {
-            if (currentImages.length > 0) {
-                // Recapture photos with the new overlay
-                recaptureWithEffects();
-            }
-        });
-        
-        // Recapture photos with current effects and overlays
-        function recaptureWithEffects() {
-            if (capturedImages.length === 0) return;
-            
-            currentImages = [];
-            
-            // Process each original captured image
-            capturedImages.forEach((imgData, index) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Clear canvas and draw the original image
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
-                    
-                    // Apply selected effect
-                    if (effectSelect.value !== 'none') {
-                        applyEffect(ctx, effectSelect.value, canvas.width, canvas.height);
-                    }
-                    
-                    // Apply selected overlay
-                    if (overlaySelect.value !== 'none') {
-                        drawOverlay(ctx, overlaySelect.value, canvas.width, canvas.height);
-                    }
-                    
-                    // Get the processed image data
-                    const processedImgData = canvas.toDataURL('image/png');
-                    
-                    // Create new image object for the processed image
-                    const processedImg = new Image();
-                    processedImg.onload = () => {
-                        currentImages.push({
-                            img: processedImg,
-                            index: index
-                        });
-                        
-                        // Update merged canvas when all images are processed
-                        if (currentImages.length === capturedImages.length) {
-                            // Sort images by index
-                            currentImages.sort((a, b) => a.index - b.index);
-                            updateMergedCanvas();
-                        }
-                    };
-                    processedImg.src = processedImgData;
-                };
-                img.src = imgData;
-            });
-        }
 
         // Handle window resize to ensure canvas fits
         window.addEventListener('resize', () => {
